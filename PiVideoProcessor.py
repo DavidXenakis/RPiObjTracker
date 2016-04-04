@@ -1,9 +1,12 @@
 import time
 import cv2
-import sys, getopt
+import sys, os, getopt
 import numpy as np
 import imutils
+import serial
 from PiVideoStream import PiVideoStream
+
+from pymavlink import mavlink
 
 blue = {'lower' : (105, 80, 70), 'upper' : (125, 255, 255)}
 orange = {'lower' : (0, 70, 70), 'upper' : (12, 255, 255)}
@@ -19,10 +22,11 @@ colors = {
 
 def parse_args(argv):
    params = {'method' : 'color', 'xRes' : 400, 'yRes' : 200,
-      'capTime' : 10, 'preview' : False, 'color' : 'blue'}
+      'capTime' : 0, 'preview' : False, 'color' : 'blue',
+      'sendToPX4' : False}
 
    try:
-      opts, args = getopt.getopt(argv, 'c:m:t:h:w:p')
+      opts, args = getopt.getopt(argv, 'c:m:t:h:w:ps')
    except getopt.GetoptError:
       print 'Error with arguments'
       sys.exit(1)
@@ -46,9 +50,15 @@ def parse_args(argv):
             print "Not a valid method. Use hough or color"
             sys.exit(1)
          params['method'] = arg
+      elif opt == "-s":
+         params['sendToPX4'] = True
    return params
 
-def findBallColor(frame, color):
+def sendToPX4(x, radius):
+   return
+   
+
+def findBallColor(frame, color, preview):
    lower = color['lower']
    upper = color['upper']
    found = False
@@ -70,6 +80,8 @@ def findBallColor(frame, color):
    cnts = cv2.findContours(mask.copy(), 
       cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
 
+   (x, y) = (0, 0)
+
    if len(cnts) > 0:
       #Find largest contour
       c = max(cnts, key=cv2.contourArea)
@@ -85,10 +97,11 @@ def findBallColor(frame, color):
          if radius > 6:
             found = True
 
-            cv2.circle(frame, (int(x), int(y)),
-               int(radius), (0, 255, 255), 2)
+            if preview:
+               cv2.circle(frame, (int(x), int(y)),
+                  int(radius), (0, 255, 255), 2)
    
-   return found, center, radius
+   return found, (x,y), radius
 
 def findBallHough(frame):
    #Convert color to grayscale
@@ -132,7 +145,10 @@ def main():
    
    #Used for calculating FPS
    startTime = time.time()
-   endTime = startTime + params['capTime']
+   if params['capTime'] == 0:
+      endTime = startTime + 1000000000
+   else:
+      endTime = startTime + params['capTime']
    frames = 0
 
    #Startup code for ORB method
@@ -141,6 +157,10 @@ def main():
       template = cv2.imread('training/checkerboard.jpg', 0)
       kp, des = orb.detectAndCompute(template, None)
 
+   if params['sendToPX4']:
+      port = serial.Serial('/dev/ttyAMA0', 57600, timeout=0)
+      mav = mavlink.MAVLink(port)
+
    while time.time() < endTime:
       frames += 1
       frame = vs.read()
@@ -148,7 +168,14 @@ def main():
       #Find object based on method
       if params['method'] == 'color':
          color = colors.get(params['color'], blue)
-         found, center, radius = findBallColor(frame, color)
+         found, (x,y), radius = findBallColor(frame, color, params['preview'])
+
+         if found and params['sendToPX4']:
+            loc = 2.0 * x / params['xRes'] - 1;
+            message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
+            mav.send(message)
+            print "Sent MAV message loc: " + str(loc)
+            
       elif params['method'] == 'hough':
          findBallHough(frame)
       elif params['method'] == 'orb':
