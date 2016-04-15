@@ -1,4 +1,7 @@
 This program is used to track objects and report their positions over MAVLink.
+If you run color method, the first action this program takes is runs a color 
+calibration. You need to hold the ball you want to track in front of the camera
+about 8 inches away for a couple seconds after the camera starts up.
 
 Usage:
    python PiVideoProcessor [options...]
@@ -15,9 +18,6 @@ Usage:
       -t <int>    Time to capture in seconds
                   <int> = (1...infinity)
                   Default = 10 
-      -c <color>  Color of object to look for
-                  <color> = (blue orange purple neon)
-                  Default = blue
       -m <method> Method of object detection
                   <method> = hough color orb
                   Default = color

@@ -1,0 +1,13 @@
+To make mavlink work and be able to import it,
+make a symbolic link to your mavlink.py file 
+in the pip installation folder for pymavlink.
+
+sudo ln -s mavlink.py /usr/local/lib/python2.7/dist-packages/pymavlink
+
+Then, change 
+
+'from ...generater.mavcrc'
+
+to
+
+'from generator.mavcrc'

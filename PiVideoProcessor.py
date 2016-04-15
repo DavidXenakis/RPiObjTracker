@@ -8,25 +8,18 @@ from PiVideoStream import PiVideoStream
 
 from pymavlink import mavlink
 
-blue = {'lower' : (105, 80, 70), 'upper' : (125, 255, 255)}
-orange = {'lower' : (0, 70, 70), 'upper' : (12, 255, 255)}
-purple = {'lower' : (130, 70, 50), 'upper' : (145, 255, 255)}
-neon = {'lower' : (18, 50, 20), 'upper' : (32, 255, 255)}
-
-colors = {
-   'blue'    : blue,
-   'orange'  : orange, 
-   'purple'  : purple,
-   'neon'    : neon
-}
+#blue = {'lower' : (105, 80, 70), 'upper' : (125, 255, 255)}
+#orange = {'lower' : (0, 70, 70), 'upper' : (12, 255, 255)}
+#purple = {'lower' : (130, 70, 50), 'upper' : (145, 255, 255)}
+#neon = {'lower' : (20, 30, 50), 'upper' : (38, 180, 255)}
 
 def parse_args(argv):
    params = {'method' : 'color', 'xRes' : 400, 'yRes' : 200,
-      'capTime' : 0, 'preview' : False, 'color' : 'blue',
-      'sendToPX4' : False}
+      'capTime' : 0, 'preview' : False, 'sendToPX4' : False,
+      'debug' : False}
 
    try:
-      opts, args = getopt.getopt(argv, 'c:m:t:h:w:ps')
+      opts, args = getopt.getopt(argv, 'm:t:h:w:pds')
    except getopt.GetoptError:
       print 'Error with arguments'
       sys.exit(1)
@@ -39,12 +32,6 @@ def parse_args(argv):
          params['preview'] = True
       elif opt == "-t" and int(arg) > 0:
          params['capTime'] = int(arg) 
-      elif opt == "-c":
-         if arg != "blue" and arg != "purple" \
-            and arg != "orange" and arg != "neon":
-            print "Not a valid color. Use blue, purple, orange, or neon"
-            sys.exit(1)
-         params['color'] = arg
       elif opt == "-m": 
          if arg != "hough" and arg != "color" and arg != "orb":
             print "Not a valid method. Use hough or color"
@@ -52,11 +39,9 @@ def parse_args(argv):
          params['method'] = arg
       elif opt == "-s":
          params['sendToPX4'] = True
+      elif opt == "-d":
+         params['debug'] = True
    return params
-
-def sendToPX4(x, radius):
-   return
-   
 
 def findBallColor(frame, color, preview):
    lower = color['lower']
@@ -132,6 +117,72 @@ def findChessORB(frame, orb, kp, des, template):
       found = cv2.drawMatches(template, kp, frame, kp2, matches[:10], outImg=None, flags=2)
    return found
 
+def calibrateColor(frame, yRes):
+   # Use Hough Circles to find ball. Histogram the ball to find the most prominent
+   # color. Use that color to set the color to find.
+
+   # Gray Scale it and blur it
+   gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+   blur = cv2.GaussianBlur(gray, (9, 9), 1)
+
+   maxR = int(.6 * yRes)
+   minR = int(.3 * yRes)
+    
+   # Perform Hough Circles algorithm
+   circles = cv2.HoughCircles(blur, cv2.HOUGH_GRADIENT, dp = 2, minDist=200, \
+                              param1=30, param2=50, minRadius=minR, maxRadius=maxR)
+   if circles is not None:
+      circles = np.uint16(np.around(circles))
+   else:
+      print "Color Calibration failed"
+      sys.exit(1)
+
+   # Find largest circle
+   loc = circles[0, 0]
+   (y, x, z) = frame.shape
+
+   # Create Mask for Histogram. Ignore all data that isnt the found ball
+   mask = np.zeros((y, x), dtype=np.uint8)
+   cv2.circle(mask, (loc[0], loc[1]), loc[2], (255, 255, 255), -1)
+
+   # Convert to HSV and histogram the Hue values
+   hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+   hue_histr = cv2.calcHist([hsv], [0], mask, [180], [0, 180])
+   sat_histr = cv2.calcHist([hsv], [1], mask, [256], [0, 256])
+   val_histr = cv2.calcHist([hsv], [2], mask, [256], [0, 256])
+
+   sat_avg = np.average(sat_histr)
+   print sat_avg
+
+   sat_min = sat_avg - 40
+   if sat_min < 10:
+      sat_min = 10
+
+   sat_max = sat_avg + 40
+   if sat_max > 255:
+      sat_max = 255
+
+   val_avg = np.average(val_histr)
+   print val_avg
+
+   val_min = val_avg - 40
+   if val_min < 10:
+      val_min = 10
+
+   val_max = val_avg + 40
+   if val_max > 255:
+      val_max = 255
+
+
+   max = np.argmax(hue_histr)
+
+   if max < 8 or max > 277:
+      return None
+   
+   color = {'lower' : (max - 8, sat_min, val_min), 'upper' : (max + 8, sat_max, val_max)}
+   return color
+
+
 def main():
    params = parse_args(sys.argv[1:]) 
    
@@ -142,6 +193,13 @@ def main():
    time.sleep(2.0)
 
    windowName = 'Frame'
+
+   if params['method'] == 'color':
+      color = calibrateColor(vs.read(), params['yRes']) 
+      if color == None:
+         vs.stop()
+         sys.exit(1)
+
    
    #Used for calculating FPS
    startTime = time.time()
@@ -158,7 +216,7 @@ def main():
       kp, des = orb.detectAndCompute(template, None)
 
    if params['sendToPX4']:
-      port = serial.Serial('/dev/ttyAMA0', 57600, timeout=0)
+      port = serial.Serial('/dev/ttyAMA0', 57600)
       mav = mavlink.MAVLink(port)
 
    while time.time() < endTime:
@@ -167,15 +225,17 @@ def main():
 
       #Find object based on method
       if params['method'] == 'color':
-         color = colors.get(params['color'], blue)
          found, (x,y), radius = findBallColor(frame, color, params['preview'])
-
-         if found and params['sendToPX4']:
+         if found:
             loc = 2.0 * x / params['xRes'] - 1;
-            message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
-            mav.send(message)
-            print "Sent MAV message loc: " + str(loc)
-            
+
+            if params['sendToPX4']:
+               message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
+               mav.send(message)
+
+            if params['debug'] :
+               print str(time.time() - startTime) + ", " + str(loc)           
+
       elif params['method'] == 'hough':
          findBallHough(frame)
       elif params['method'] == 'orb':
@@ -183,13 +243,17 @@ def main():
       if params['preview']:
          frame = imutils.resize(frame, width=400)
          cv2.imshow(windowName, frame)
-         key = cv2.waitKey(1) & 0xFF
+
+      key = cv2.waitKey(1) & 0xFF
+      if (key == ord("q")):
+         break;
       
+   totalTime = time.time() - startTime
    cv2.destroyAllWindows()
 
    vs.stop()
 
-   print "Average main FPS: " + str(float(frames) / params['capTime']) + "fps"
+   print "Average main FPS: " + str(float(frames) / totalTime) + "fps"
 
 if __name__ == "__main__":
    main()

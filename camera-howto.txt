@@ -1,0 +1,6 @@
+VIDEO
+raspivid -o video.h264 -t 10000
+
+PICTURE
+raspistill -o image.jpg
+
