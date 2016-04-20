@@ -4,3 +4,9 @@ raspivid -o video.h264 -t 10000
 PICTURE
 raspistill -o image.jpg
 
+Play Video
+omxplayer
+
+Show Picture
+piqv
+
