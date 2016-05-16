@@ -9,11 +9,11 @@ import scipy.io
 from time import time
 from PiVideoReader import PiVideoReader
 
-params = {'preview' : False, 'dir' : None}
+params = {'preview' : False, 'dir' : None, 'method': "pattern"}
 
 def parse_args(argv):
    try:
-      opts, args = getopt.getopt(argv, 'd:p')
+      opts, args = getopt.getopt(argv, 'm:d:p')
    except getopt.GetoptError:
       print 'Error with arguments'
       sys.exit(1)
@@ -22,13 +22,18 @@ def parse_args(argv):
          params['preview'] = True
       elif opt == "-d":
          params['dir'] = arg
+      elif opt = "-m":
+         if arg != "pattern" and arg != "color":
+            print "Not a valid method"
+            sys.exit(1)
+         params['method'] = arg
 
 def processFrame(frame, func, color=None):
    t1 = time()
-   loc, frame = func(frame, color, params['preview'])
+   found, loc, frame = func(frame, color, params['preview'])
    t2 = time()
 
-   return t2 - t1, loc, frame
+   return found, t2 - t1, loc, frame
 
 def getFileList(ext):
    files = glob.glob(params['dir'] + "/*" + ext)
@@ -65,7 +70,7 @@ def main():
    (y, x, z) = np.shape(frame)
    color = FindingFuncs.calibrateColor(frame, y)
    print color
-   color = {'lower' : (110, 40, 40), 'upper' : (130, 255, 255)}
+   color = {'lower' : (105, 40, 40), 'upper' : (120, 255, 255)}
    #cv2.imshow("frame", frame)
    #key = cv2.waitKey(5000) & 0xFF
 
@@ -76,17 +81,17 @@ def main():
    for i, f in enumerate(files):
       frames += 1
       frame = cv2.imread(f)
-      frame = frame[y * .28 : y * .62, 0:x]
+      frame = frame[y * .25 : y * .65, 0:x]
 
       func = FindingFuncs.findBallColor
-      t, [bx, by], frame = processFrame(frame, func, color)
-      if bx is None:
-         bx = coords[i][0] + x
+      found, t, [bx, by], frame = processFrame(frame, func, color)
+      if found is False:
+         e = x
+      else:
+         e = error([bx, by], coords[i])
 
-      e = error([bx, by], coords[i])
       totalError += e
       runTime += t
-
 
       if params['preview']:
          print "---Frame: " + str(i)

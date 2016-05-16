@@ -6,63 +6,96 @@ import imutils
 import serial
 import FindingFuncs
 from PiVideoStream import PiVideoStream
-
 from pymavlink import mavlink
-
-#blue = {'lower' : (105, 80, 70), 'upper' : (125, 255, 255)}
-#orange = {'lower' : (0, 70, 70), 'upper' : (12, 255, 255)}
-#purple = {'lower' : (130, 70, 50), 'upper' : (145, 255, 255)}
-#neon = {'lower' : (20, 30, 50), 'upper' : (38, 180, 255)}
+from KalmanFilter import KalmanFilter
 
 def parse_args(argv):
-   params = {'method' : 'color', 'xRes' : 400, 'yRes' : 200,
+   params = {'method' : 'color', 'xRes' : 600, 'yRes' : 450,
       'capTime' : 0, 'preview' : False, 'sendToPX4' : False,
-      'debug' : False}
+      'debug' : False, 'file' : None}
 
    try:
-      opts, args = getopt.getopt(argv, 'm:t:h:w:pds')
+      opts, args = getopt.getopt(argv, 'f:m:t:w:pds')
    except getopt.GetoptError:
       print 'Error with arguments'
       sys.exit(1)
    for opt, arg in opts:
-      if opt == "-h" and int(arg) > 0:
-         params['yRes'] = int(arg)
-      elif opt == "-w" and int(arg) > 0:
+      if opt == "-w" and int(arg) > 0:
          params['xRes'] = int(arg)
+         params['yRes'] = int(.75 * int(arg))
       elif opt == "-p":
          params['preview'] = True
       elif opt == "-t" and int(arg) > 0:
          params['capTime'] = int(arg) 
       elif opt == "-m": 
-         if arg != "hough" and arg != "color" and arg != "orb":
-            print "Not a valid method. Use hough or color"
+         if arg != "color" and arg != "orb" and arg != "surf":
+            print "Not a valid method. Use color, orb, surf"
             sys.exit(1)
          params['method'] = arg
       elif opt == "-s":
          params['sendToPX4'] = True
       elif opt == "-d":
          params['debug'] = True
+      elif opt == "-f":
+         params['file'] = arg
    return params
 
+def check_params(params):
+   if params['method'] == 'orb' or params['method'] == 'surf':
+      if params['file'] == None:
+         print "Please specify a template file for those patterns"
+         print "Place that template file in the 'training' folder"
+         sys.exit(1)
+
+   return params
+
+def read_template(params):
+   template = cv2.imread(params['file'], cv2.IMREAD_GRAYSCALE)
+   if template is None:
+      print "Could not open file"
+      sys.exit(1)
+
+   return template
+
+def init_surf():
+   surf = cv2.xfeatures2d.SURF_create(1500)
+   #surf.setUpright(True)
+
+   FLANN_INDEX_KDTREE = 0
+   index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+   search_params = dict(checks=50)
+
+   flann = cv2.FlannBasedMatcher(index_params, search_params)
+
+   return surf, flann
 
 def main():
-   params = parse_args(sys.argv[1:]) 
+   params = check_params(parse_args(sys.argv[1:]))
+
+   if params['file']:
+      template = read_template(params)
+
+   #Startup code for SURF method
+   if params['method'] == 'surf':
+      surf, flann = init_surf()
+      kp, des = surf.detectAndCompute(template, None)
    
+   #Startup code for ORB method
+   if params['method'] == 'orb':
+      orb = cv2.ORB_create()
+      kp, des = orb.detectAndCompute(template, None)
+
    #Start up Video processing thread
    vs = PiVideoStream(resolution=(params['xRes'], params['yRes'])).start()
 
    #Wait for camera to warm up
-   time.sleep(2.0)
-
-   windowName = 'Frame'
+   time.sleep(3.0)
 
    if params['method'] == 'color':
-      color = calibrateColor(vs.read(), params['yRes']) 
+      color = FindingFuncs.calibrateColor(vs.read(), params['yRes']) 
       if color == None:
-         vs.stop()
          sys.exit(1)
 
-   
    #Used for calculating FPS
    startTime = time.time()
    if params['capTime'] == 0:
@@ -71,41 +104,58 @@ def main():
       endTime = startTime + params['capTime']
    frames = 0
 
-   #Startup code for ORB method
-   if params['method'] == 'orb':
-      orb = cv2.ORB_create()
-      template = cv2.imread('training/checkerboard.jpg', 0)
-      kp, des = orb.detectAndCompute(template, None)
-
    if params['sendToPX4']:
       port = serial.Serial('/dev/ttyAMA0', 57600)
       mav = mavlink.MAVLink(port)
 
+   # Typically only need to search within a small Y-range
+   yRes = params['yRes']
+   (cropYmin, cropYmax) = (yRes * .25, yRes * .70)
+
+   #Take weighted average of last # of distances to filter out noise
+   DS = FindingFuncs.DistanceSmoother(6)
+   notFoundCount = 0
+
    while time.time() < endTime:
       frames += 1
       frame = vs.read()
+      frame = frame[cropYmin : cropYmax, 0:params['xRes']]
+
+      found = False
 
       #Find object based on method
       if params['method'] == 'color':
-         (x,y), frame = FindingFuncs.findBallColor(frame, color, params['preview'])
-         if found:
-            loc = 2.0 * x / params['xRes'] - 1;
-
-            if params['sendToPX4']:
-               message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
-               mav.send(message)
-
-            if params['debug'] :
-               print str(time.time() - startTime) + ", " + str(loc)           
-
-      elif params['method'] == 'hough':
-         FindingFuncs.findBallHough(frame)
+         found, (x,y), frame = FindingFuncs.findBallColor(frame, color, params['preview'])
       elif params['method'] == 'orb':
-         frame = FindingFuncs.findChessORB(frame, orb, kp, des, template)
-      if params['preview']:
-         frame = imutils.resize(frame, width=400)
-         cv2.imshow(windowName, frame)
+         found, (x,y), frame = FindingFuncs.findPatternORB(frame, orb, kp, des, template, params['preview'])
+      elif params['method'] == 'surf':
+         found, (x,y,z), frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
 
+      if not found:
+         notFoundCount += 1
+
+         if notFoundCount > 6:
+            DS.reset()
+      else:
+         dist = DS.update(z)
+         notFoundCount = 0
+
+         loc = 2.0 * x / params['xRes'] - 1;
+
+         if params['sendToPX4']:
+            message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
+            mav.send(message)
+
+         if params['debug'] :
+            print str(time.time() - startTime) + ", " + str(loc)
+            #print "Time: " + str(time.time() - startTime) \
+            #   + "\tLoc: " + str(loc) + "\tDist: " + str(dist)  
+
+      if params['preview']:
+         frame = imutils.resize(frame, width=800)
+         cv2.imshow("Preview", frame)
+
+      #Check for keypress, ending if Q is entered
       key = cv2.waitKey(1) & 0xFF
       if (key == ord("q")):
          break;

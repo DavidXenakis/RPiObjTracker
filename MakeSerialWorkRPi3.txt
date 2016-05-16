@@ -1,0 +1,13 @@
+The RPi B, B+, and 2 map the GPIO 14/15 pins to UART0. These are the pins we use
+for serial connection to the Pixhawk. The RPi3 mapped those pins to UART1 since
+UART0 is now used for Bluetooth. 
+
+To fix this, we must disable bluetooth. 
+
+In /boot/config.txt
+
+Add
+dtoverlay=pi3-disable-bt
+
+then run
+sudo systemctl disable hciuart
