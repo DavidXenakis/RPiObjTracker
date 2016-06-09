@@ -10,12 +10,12 @@ from pymavlink import mavlink
 from KalmanFilter import KalmanFilter
 
 def parse_args(argv):
-   params = {'method' : 'color', 'xRes' : 600, 'yRes' : 450,
+   params = {'xRes' : 600, 'yRes' : 450,
       'capTime' : 0, 'preview' : False, 'sendToPX4' : False,
       'debug' : False, 'file' : None}
 
    try:
-      opts, args = getopt.getopt(argv, 'f:m:t:w:pds')
+      opts, args = getopt.getopt(argv, 'f:t:w:pds')
    except getopt.GetoptError:
       print 'Error with arguments'
       sys.exit(1)
@@ -27,11 +27,6 @@ def parse_args(argv):
          params['preview'] = True
       elif opt == "-t" and int(arg) > 0:
          params['capTime'] = int(arg) 
-      elif opt == "-m": 
-         if arg != "color" and arg != "orb" and arg != "surf":
-            print "Not a valid method. Use color, orb, surf"
-            sys.exit(1)
-         params['method'] = arg
       elif opt == "-s":
          params['sendToPX4'] = True
       elif opt == "-d":
@@ -41,11 +36,10 @@ def parse_args(argv):
    return params
 
 def check_params(params):
-   if params['method'] == 'orb' or params['method'] == 'surf':
-      if params['file'] == None:
-         print "Please specify a template file for those patterns"
-         print "Place that template file in the 'training' folder"
-         sys.exit(1)
+   if params['file'] == None:
+      print "Please specify a template file for those patterns"
+      print "Place that template file in the 'training' folder"
+      sys.exit(1)
 
    return params
 
@@ -85,26 +79,14 @@ def main():
    if params['file']:
       template = read_template(params)
 
-   #Startup code for SURF method
-   if params['method'] == 'surf':
-      surf, flann = init_surf()
-      kp, des = surf.detectAndCompute(template, None)
-   
-   #Startup code for ORB method
-   if params['method'] == 'orb':
-      orb = cv2.ORB_create()
-      kp, des = orb.detectAndCompute(template, None)
+   surf, flann = init_surf()
+   kp, des = surf.detectAndCompute(template, None)
 
    #Start up Video processing thread
    vs = PiVideoStream(resolution=(params['xRes'], params['yRes'])).start()
 
    #Wait for camera to warm up
    time.sleep(3.0)
-
-   if params['method'] == 'color':
-      color = FindingFuncs.calibrateColor(vs.read(), params['yRes']) 
-      if color == None:
-         sys.exit(1)
 
    #Used for calculating FPS
    startTime = time.time()
@@ -131,15 +113,7 @@ def main():
       frame = vs.read()
       frame = frame[cropYmin : cropYmax, 0:params['xRes']]
 
-      found = False
-
-      #Find object based on method
-      if params['method'] == 'color':
-         found, (x,y), frame = FindingFuncs.findBallColor(frame, color, params['preview'])
-      elif params['method'] == 'orb':
-         found, (x,y), frame = FindingFuncs.findPatternORB(frame, orb, kp, des, template, params['preview'])
-      elif params['method'] == 'surf':
-         found, (x,y,z), frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
+      found, (x,y,z), frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
 
       # Count how many frames it has been since the RPi has not found anything
       if not found:
