@@ -77,7 +77,7 @@ def findPatternSURF(frame, surf, kp, des, template, flann, preview):
    kp2, des2 = surf.detectAndCompute(f, None)
 
    found = False
-   xLoc, yLoc, dev = 0, 0, 0
+   xLoc, yLoc = 0, 0
    
    if des is not None and des2 is not None and \
       len(des) >= 2 and len(des2) >= 2:
@@ -128,7 +128,7 @@ def findPatternSURF(frame, surf, kp, des, template, flann, preview):
       #for x,y in zip(xCoords, yCoords):
       #   cv2.circle(frame, (int(y), int(x)), 2, (255, 0, 255), 3)
 
-   return found, [xLoc, yLoc, dev], frame
+   return found, [xLoc, yLoc], frame
 
 def filterOutliers(array, numStdDev = 1.5):
    npArray = np.array(array)

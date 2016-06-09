@@ -106,14 +106,14 @@ def main():
    (cropYmin, cropYmax) = (yRes * .25, yRes * .70)
 
    #Take weighted average of last # of distances to filter out noise
-   notFoundCount = 0
+   notFoundCount = 1000
 
    while time.time() < endTime:
       frames += 1
       frame = vs.read()
       frame = frame[cropYmin : cropYmax, 0:params['xRes']]
 
-      found, (x,y,z), frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
+      found, [x,y], frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
 
       # Count how many frames it has been since the RPi has not found anything
       if not found:
