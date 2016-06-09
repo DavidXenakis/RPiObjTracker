@@ -25,7 +25,8 @@ echo $PATH
 PATH=$PATH:/bin:/sbin:/usr/bin:/usr/local/bin
 export PATH
 cd /home/pi/RPiObjTracker
-screen -d -m -s /bin/bash python PiVideoProcessor.py -h 250 -w 375 -s -m color
+#screen -d -m -s /bin/bash python PiVideoWriter.py -t 60 -f 2 -x 400 -y 250
+screen -d -m -s /bin/bash python PiVideoProcessor.py -w 450 -s -m surf -f training/yinyang2.jpg
 ) > /tmp/rc.log 2>&1
 
 exit 0

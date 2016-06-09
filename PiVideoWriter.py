@@ -1,3 +1,7 @@
+# This file will capture and write a video.
+# You could perhaps use this code to record
+# each run of the main object tracking algorithm.
+
 import time
 import threading
 import numpy as np

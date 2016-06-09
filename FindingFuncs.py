@@ -101,7 +101,6 @@ def findPatternSURF(frame, surf, kp, des, template, flann, preview):
 
       #Sort the matches based on the best distance
       if len(queryDMatches) >= 4:
-         found = True
          
          num = int(len(queryDMatches) * 1)
          #Sort the coordinates to only find best matches
@@ -115,24 +114,19 @@ def findPatternSURF(frame, surf, kp, des, template, flann, preview):
          yCoords = filterOutliers(yCoords, 1.2)
       
          if len(xCoords) != 0 and len(yCoords) != 0:
+            found = True
             xLoc = sum(xCoords) / len(xCoords)
             yLoc = sum(yCoords) / len(yCoords)
-
+            if preview:
+               cv2.circle(frame, (int(xLoc), 10), 4, (0, 255, 255), 6)
                            #draw_params = dict(matchColor = (255, 255, 0),
                #                   singlePointColor = (255, 0, 0),
                #                   matchesMask = matchesMask,
                #                   flags = 0)
                #frame = cv2.drawMatchesKnn(template, kp, frame, kp2, matches, None, **draw_params)
 
-   if xLoc != 0:
-      kf.update(xLoc)
-   xLoc = kf.predict()
-
-   if preview:
-      cv2.circle(frame, (int(xLoc), 10), 4, (0, 255, 255), 6)
       #for x,y in zip(xCoords, yCoords):
       #   cv2.circle(frame, (int(y), int(x)), 2, (255, 0, 255), 3)
-
 
    return found, [xLoc, yLoc, dev], frame
 
@@ -142,6 +136,7 @@ def filterOutliers(array, numStdDev = 1.5):
    mean = np.mean(npArray)
    return [x for x in array if abs(x - mean) < numStdDev * stdDev]
 
+#Pointless class. disregard
 class DistanceSmoother(object):
    def __init__(self, size):
       self.size = size

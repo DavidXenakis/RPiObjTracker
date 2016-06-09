@@ -58,8 +58,10 @@ def read_template(params):
    return template
 
 def init_surf():
+   # This number affects how many keypoints are found. 
+   # Higher number -> Fewer keypoints -> Worse detection, higher performance
+   # and vice versa
    surf = cv2.xfeatures2d.SURF_create(1500)
-   #surf.setUpright(True)
 
    FLANN_INDEX_KDTREE = 0
    index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
@@ -69,8 +71,16 @@ def init_surf():
 
    return surf, flann
 
+def boundFloat(val, low, high):
+   if val < low:
+      return low
+   if val > high:
+      return high
+   return val
+
 def main():
    params = check_params(parse_args(sys.argv[1:]))
+   kf = KalmanFilter()
 
    if params['file']:
       template = read_template(params)
@@ -104,6 +114,7 @@ def main():
       endTime = startTime + params['capTime']
    frames = 0
 
+   # Open up serial port with Pixhawk
    if params['sendToPX4']:
       port = serial.Serial('/dev/ttyAMA0', 57600)
       mav = mavlink.MAVLink(port)
@@ -113,7 +124,6 @@ def main():
    (cropYmin, cropYmax) = (yRes * .25, yRes * .70)
 
    #Take weighted average of last # of distances to filter out noise
-   DS = FindingFuncs.DistanceSmoother(6)
    notFoundCount = 0
 
    while time.time() < endTime:
@@ -131,28 +141,34 @@ def main():
       elif params['method'] == 'surf':
          found, (x,y,z), frame = FindingFuncs.findPatternSURF(frame, surf, kp, des, template, flann, params['preview'])
 
+      # Count how many frames it has been since the RPi has not found anything
       if not found:
          notFoundCount += 1
-
-         if notFoundCount > 6:
-            DS.reset()
       else:
-         dist = DS.update(z)
          notFoundCount = 0
+         kf.update(x)
 
-         loc = 2.0 * x / params['xRes'] - 1;
+      # How many frames until you assume to keep going straight.
+      if notFoundCount > 100:
+         kf.reset()
+         x = params['xRes'] / 2
+      else:      
+         x = kf.predict()
 
-         if params['sendToPX4']:
-            message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
-            mav.send(message)
+      loc = boundFloat(2.0 * x / params['xRes'] - 1, -1., 1.)
 
-         if params['debug'] :
-            print str(time.time() - startTime) + ", " + str(loc)
-            #print "Time: " + str(time.time() - startTime) \
-            #   + "\tLoc: " + str(loc) + "\tDist: " + str(dist)  
+      if params['sendToPX4']:
+         message = mavlink.MAVLink_duck_leader_loc_message(loc, 5.0)
+         mav.send(message)
+
+      if params['debug'] :
+         print str(time.time() - startTime) + ", " + str(loc)
 
       if params['preview']:
-         frame = imutils.resize(frame, width=800)
+         # Draw a circle on frame where the Kalman filter predicts.
+         cv2.circle(frame, (int(x), 10), 4, (0, 0, 255), 6)
+
+         frame = imutils.resize(frame, width=1000)
          cv2.imshow("Preview", frame)
 
       #Check for keypress, ending if Q is entered

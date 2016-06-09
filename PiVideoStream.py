@@ -1,3 +1,7 @@
+# This class opens up a connection to the RPi Camera.
+# This connection runs in a separate thread to reduce
+# I/O impact on the image processing thread.
+
 from picamera.array import PiRGBArray
 from picamera import PiCamera
 from threading import Thread

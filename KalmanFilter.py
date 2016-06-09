@@ -6,7 +6,7 @@ class KalmanFilter:
         # Location and Speed
         self.x = matrix([[0.], [0.]])
         # Initial uncertainty
-        self.P = matrix([[10., 0.], [0., 10.]])
+        self.P = matrix([[1000., 0.], [0., 1000.]])
         # External Motion (Steering)
         self.u = matrix([[0.], [0.]])
         # State Transition Matrix
@@ -14,7 +14,7 @@ class KalmanFilter:
         # Measurement Function. What are you measuring?
         self.H = matrix([[1., 0.]])
         # Measurement Uncertainty
-        self.R = matrix([[.1]])
+        self.R = matrix([[.01]])
         # Increase Gain
         self.G = matrix([[2.]])
         # Identity Matrix
@@ -44,6 +44,12 @@ class KalmanFilter:
 
         self.x = self.F * self.x + self.u
         self.P = self.F * self.P * self.F.transpose()
+        self.P = self.P * matrix([[1.3, 0], [0, 1.3]])
+
         return self.x.getValue()[0][0]
+
+    def reset(self):
+        self.P = matrix([[1000., 0.], [0., 1000.]])
+        self.x = matrix([[0.], [0.]])
         
         
